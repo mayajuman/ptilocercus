@@ -1,0 +1,321 @@
+---
+title: "ptilo_final"
+author: "Maya Juman"
+date: "August 29, 2020"
+output: html_document
+---
+
+```{r}
+library(ggplot2)
+library(ggfortify)
+library(MASS)
+library(klaR)
+library(lme4)
+library(car)
+library(plyr)
+library("sf")
+```
+
+###DFA
+
+```{r}
+tot <- read.csv("ptilo_base_dfa.csv")
+tot[,5:14] <- log(tot[,5:14])
+#tot <- tot[-c(28,41,44,45),-12]
+tot <- tot[,-c(7,9)] #dump bb and ppl, lpl
+tot <- na.omit(tot)
+
+table(tot$Subspecies)
+
+lin <- lda(tot[,-c(1:4)],grouping=tot$Subspecies, CV = TRUE)
+
+ctraw <- table(tot$Subspecies, predict(lin)$class) #for CV = FALSE
+ctraw <- table(tot$Subspecies, lin$class) #for CV = TRUE
+ctraw #rows are actual count and columns are predicted count
+
+# total percent correct
+round(sum(diag(prop.table(ctraw))),4)
+
+lin2 <- lda(tot[,-c(1:4)],grouping=tot$Island, CV = FALSE)
+lin2 <- lda(tot[,-c(1:4)],grouping=tot$Island, CV = TRUE)
+#predict(lin)$class
+ctraw2 <- table(tot$Island, predict(lin2)$class) #for CV = FALSE
+ctraw2 <- table(tot$Island, lin2$class) #for CV = TRUE
+ctraw2 #rows are actual count and columns are predicted count
+
+# total percent correct
+round(sum(diag(prop.table(ctraw2))),4)
+
+lda.values <- predict(lin2) #for CV = FALSE
+
+plot(lin2)
+
+nd <- data.frame(type = tot[,4], lda = lda.values$x) #for CV = FALSE
+
+nd$Locality <- rep(NA,39)
+nd$Locality[1:28] <- "Malay Peninsula"
+nd$Locality[29] <- "Pini (Batu)"
+nd$Locality[30:31] <- "Siberut (Mentawai)"
+nd$Locality[32:39] <- "Borneo"
+
+find_hull <- function(nd) nd[chull(nd$lda.LD1, nd$lda.LD2), ]
+hulls <- ddply(nd, "type", find_hull)
+
+#og
+#ggplot(nd) + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + theme(legend.title = element_blank()) + geom_point(aes(lda.LD1, lda.LD2, shape = Locality), fill="grey", size = 3.5) + scale_shape_manual(values = c(0,18,21,24)) + xlab("LD1") + ylab("LD2") + geom_vline(aes(xintercept = 0), size=0.25) + geom_hline(aes(yintercept = 0), size=0.25) + theme(text = element_text(size=13)) + theme(legend.position = c(0.20, 0.87), legend.spacing.x = unit(2, 'mm'), legend.key.size = unit(6, 'mm'), legend.box.background = element_rect(color="transparent", size=0.5))
+
+n <- c("grey90", "grey60", "black")
+
+#current
+dfa <- ggplot(nd) + theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + theme(legend.title = element_blank()) + geom_point(aes(lda.LD1, lda.LD2, shape = Locality), fill="grey", size = 3.5) + scale_shape_manual(values = c(0,18,21,24)) + xlab("LD1") + ylab("LD2") + geom_vline(aes(xintercept = 0), size=0.25) + geom_hline(aes(yintercept = 0), size=0.25) + theme(text = element_text(size=14)) + theme(legend.position = c(0.21, 0.87), legend.spacing.x = unit(2, 'mm'), legend.key.size = unit(6, 'mm'), legend.box.background = element_rect(color="transparent", size=0.5), legend.text=element_text(size=12)) + geom_polygon(data=hulls, alpha=0.3, aes(x=lda.LD1, y=lda.LD2, group=type, fill=type, linetype=type, guide=FALSE), show.legend = FALSE, color="black") + scale_fill_manual(values=n)
+
+#double legend
+#ggplot(nd) + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + theme(legend.title = element_blank()) + geom_point(aes(lda.LD1, lda.LD2, shape = Locality), fill="grey", size = 3.5) + scale_shape_manual(values = c(0,18,21,24)) + xlab("LD1") + ylab("LD2") + geom_vline(aes(xintercept = 0), size=0.25) + geom_hline(aes(yintercept = 0), size=0.25) + theme(text = element_text(size=14)) + theme(legend.position = c(0.21, 0.87), legend.spacing.x = unit(2, 'mm'), legend.key.size = unit(6, 'mm'), legend.box.background = element_rect(color="transparent", size=0.5), legend.text=element_text(size=12)) + geom_polygon(data=hulls, alpha=0.3, aes(x=lda.LD1, y=lda.LD2, group=type, fill=type, linetype=type), color="black") + scale_fill_manual(values=n)
+
+dfa2 <- dfa + geom_text(
+    label="P. l. lowii", 
+    x=-2.7,
+    y=0.2,
+    size = 4,
+    color = "black",
+    fontface = "italic"
+  ) +
+  geom_text(
+    label="P. l. continentis", 
+    x=0.15,
+    y=2.65,
+    size = 4,
+    color = "black",
+    fontface = "italic"
+  ) +
+  geom_text(
+    label="P. l. continentis", 
+    x=0.15,
+    y=-0.38,
+    size = 4,
+    color = "black",
+    fontface = "italic"
+  )
+
+dfa2
+
+ggsave(dfa2,file="Fig.2.jpg",width=130, height=130, units="mm")
+
+round(lin2$scaling, 2)
+```
+
+###skull PCA
+
+```{r}
+setwd("~/Desktop/ptilo/")
+x <- read.csv("ptilo_base.csv")
+
+gmn = function(x, na.rm=FALSE){
+  exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+}
+
+y5 <- subset(x, select=c(Museum, MuseumCat, Subspecies, Island, Sex, Type, PPL, MTL, MH, MCH, LIB, BB)) ##thing i emailed to eric
+y5 <- na.omit(y5)
+y5[,7:12] <- log(y5[,7:12]) #logging BEFORE GEOMEAN
+
+y5$gm <- rep(NA,42)
+for (i in 1:42) {
+  y5$gm[i] <- gmn(y5[i,7:12])
+  y5[i,7:12] <- y5[i,7:12]/y5$gm[i]
+}
+
+pc5 <- princomp(y5[,-c(1:6,13)], cor=TRUE)
+for (i in 1:6) {
+  pc5$loadings[,i] <- (pc5$loadings[,i] * pc5$sdev[i])
+}
+print(summary(pc5),digits=4,loadings=pc5$loadings,cutoff=0)
+round(pc5$sdev^2,2)
+
+autoplot(pc5, x = 1, y = 2, data = y5, colour = 'Island', label = FALSE, label.size = 3, frame=TRUE)
+
+y5$pc1 <- pc5$scores[,1]
+y5$pc2 <- pc5$scores[,2]
+```
+
+```{r}
+find_hullpcr <- function(y5) y5[chull(y5$pc1, y5$pc2), ]
+hullspcr <- ddply(y5, "Island", find_hullpcr)
+
+n <- c("black", "grey80", "grey60", "white")
+m <- c("grey90", "grey60", "black", "white")
+
+skull <- ggplot(data = y5, aes(x=pc1, y=pc2, group=Island)) + theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + theme(legend.title = element_blank()) + scale_shape_manual(values = c(17,21,8,15)) + xlab("PC1 (41.60%)") + ylab("PC2 (26.29%)") + geom_vline(aes(xintercept = 0), size=0.25) + geom_hline(aes(yintercept = 0), size=0.25) + theme(text = element_text(size=14)) + theme(legend.position = c(0.81, 0.13), legend.spacing.x = unit(2, 'mm'), legend.key.size = unit(6, 'mm'), legend.box.background = element_rect(color="transparent", size=0.5), legend.text=element_text(size=12)) + geom_polygon(data=hullspcr, alpha=0.3, aes(x=pc1, y=pc2, group=Island, fill=Island, linetype=Island), show.legend = FALSE, color="black") + scale_fill_manual(values=n) + scale_linetype_manual(values = c("solid","dashed","blank","dotted")) + geom_text(
+    label="P. l. lowii", 
+    x=-2.3,
+    y=-0.9,
+    size = 4,
+    color = "black",
+    fontface = "italic"
+  ) +
+  geom_text(
+    label="P. l. continentis", 
+    x=0.93,
+    y=1.25,
+    size = 4,
+    color = "black",
+    fontface = "italic"
+  ) + theme(axis.text.x = element_text(color="black"), axis.text.y = element_text(color="black"))  + geom_point(aes(y5$pc1, y5$pc2, shape = Island), fill="white", size = 3.5)
+ 
+skull
+
+ggsave(skull,file="skullpca.pdf",width=150, height=150, units="mm")
+
+#pca <- 
+  
+#ggplot(data = y5, aes(x=pc1, y=pc2, group=Island)) + geom_polygon(data=hullspcr, alpha=0.3, aes(x=pc1, y=pc2, group=Island, fill=Island, linetype=Island), color="black") + geom_point(aes(shape=Island), fill="grey", size=5) + scale_fill_manual(values=m, guide = guide_legend(label.theme = element_text(angle = 0, 
+                                                                     #face = "italic", size=15))) + theme_bw() + scale_shape_manual(values = c(17,16,15, 21,22,23,24), guide = guide_legend(label.theme = element_text(angle = 0, 
+                                                                     #face = "plain", size=15))) + geom_vline(aes(xintercept = 0), size=0.25) + scale_linetype_manual(values=c(2,1,3,4)) + geom_hline(aes(yintercept = 0), size=0.25) + xlab("PC1 (38.19%)") + ylab("PC2 (24.77%)") + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + theme(legend.box = "vertical", legend.position = c(0.22,0.18), legend.spacing.x = unit(2, 'mm'), legend.text=element_text(size=15), legend.key.size = unit(6, 'mm')) + theme(legend.title = element_blank()) + theme(text = element_text(size=16))
+```
+
+
+###innominate PCA
+
+```{r}
+pcr <- read.csv("ptilo_postcr.csv")
+pcr[,6:138] <- log(pcr[,6:138])
+pcr_comp <- pcr[,colSums(is.na(pcr)) < 1]
+ino <- pcr_comp[,-c(10:12)]
+
+#ino$gm <- rep(NA,7)
+#for (i in 1:7) {
+  #ino$gm[i] <- gmn(ino[i,6:9])
+  #ino[i,6:9] <- ino[i,6:9]/ino$gm[i]
+#}
+
+#autoplot(pcr1, x = 1, y = 2, data = ino, colour = 'Subsp', label = FALSE, label.size = 3, frame=TRUE)
+
+#autoplot(pcr1, x = 2, y = 3, data = ino, colour = 'Subsp', label = FALSE, label.size = 3, frame=TRUE)
+
+pcr1 <- princomp(ino[,-(1:5)], cor=TRUE)
+
+ino$Subsp <- rep(NA,7)
+ino$Subsp[1:4] <- "P. l. continentis"
+ino$Subsp[5:7] <- "P. l. lowii"
+
+ino$pc1 <- pcr1$scores[,1]
+ino$pc2 <- pcr1$scores[,2]
+ino$pc3 <- pcr1$scores[,3]
+
+for (i in 1:4) {
+  pcr1$loadings[,i] <- (pcr1$loadings[,i] * pcr1$sdev[i])
+}
+print(summary(pcr1),digits=2,loadings=pcr1$loadings,cutoff=0)
+round(pcr1$sdev^2,2) #eigenvalues (i.e. squared standard dv)
+
+find_hullpcr <- function(ino) ino[chull(ino$pc1, ino$pc2), ]
+hullspcr <- ddply(ino, "Subspecies", find_hullpcr)
+
+m <- c("grey90", "grey60", "black")
+
+pca <- ggplot(data = ino, aes(x=pc1, y=pc2, group=Island)) + geom_polygon(data=hullspcr, alpha=1, aes(x=pc1, y=pc2, group=Subsp, fill=Subsp, linetype=Subsp), color="black") + geom_point(aes(shape=Island), fill="grey", size=5) + scale_fill_manual(values=m) + theme_bw() + scale_shape_manual(values = c(17,16,21), guide = guide_legend(label.theme = element_text(angle = 0, 
+                                                                     face = "plain", size=15))) + geom_vline(aes(xintercept = 0), size=0.25) + scale_linetype_manual(values=c(2,1)) + geom_hline(aes(yintercept = 0), size=0.25) + xlab("PC1 (61.88%)") + ylab("PC2 (21.46%)") + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + theme(legend.box = "vertical", legend.position = c(0.22,0.23), legend.spacing.x = unit(2, 'mm'), legend.text=element_text(size=15), legend.key.size = unit(6, 'mm'), legend.title = element_blank()) + theme(text = element_text(size=16)) + theme(axis.text.x = element_text(color="black"), axis.text.y = element_text(color="black")) + guides(fill = guide_legend(byrow = TRUE, label.theme = element_text(angle = 0, face = "italic", size=15))) + theme(legend.spacing.y = unit(2, "mm"))
+
+pca
+
+ggsave(pca,file="Fig.3 final.eps",width=150, height=150, units="mm")
+```
+
+###map
+
+```{r}
+theme_set(theme_bw())
+library("rnaturalearth")
+library("rnaturalearthdata")
+library("ggspatial")
+#citation(package = "ggplot2")
+world <- ne_countries(scale = "medium", returnclass = "sf")
+sites <- read.csv("ptilo_loc.csv")
+#sites <- sites[-(46:47),]
+
+z <- c("gray80", "gray50")
+
+map <- ggplot(data = world) + geom_sf() +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank(), panel.grid.major = element_line(colour = "transparent"), panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+    geom_point(data = sites, aes(x = Long, y = Lat, shape = Subspecies), size = 3, fill = "black") + 
+  coord_sf(xlim = c(96,119), ylim = c(-6.5,7.5), expand = FALSE) + xlab("Longitude") + ylab("Latitude") + 
+  scale_shape_manual(values = c(19,17), 
+                     guide = guide_legend(label.theme = element_text(angle = 0, 
+                                                                     face = "italic", size=12))) + 
+  theme(legend.title = element_blank(), 
+        legend.box.background = element_rect(color="black", size=0.4)) + 
+  theme(legend.position = c(0.89,0.08),
+        legend.spacing.x = unit(1, 'mm'), legend.key.size = unit(5, 'mm'), legend.background = element_rect(color = "white", linetype = "solid", size=1)) +
+  annotation_scale(location = "bl", width_hint = 0.18) +
+    annotation_north_arrow(location = "bl", which_north = "true", 
+        pad_x = unit(0.5, "in"), pad_y = unit(0.3, "in"), 
+        height = unit(1, "cm"),
+        width = unit(1, "cm"),
+        style = north_arrow_fancy_orienteering)
+
+map
+
+#ggsave(map,file="Fig.1.jpg",width=200, height=120, units="mm")
+```
+
+###add ranges
+
+```{r}
+library(rgdal)
+library(sf)
+
+spdf <- readOGR( 
+  dsn = "~/Desktop/ptilo", 
+  layer = "data_0")
+
+shp_df <- fortify(spdf)
+
+shp_df$id[shp_df$id == c("0")] <- "C"
+shp_df$id[shp_df$id == c("1")] <- "C"
+shp_df$id[shp_df$id == c("2")] <- "C"
+shp_df$id[shp_df$id == c("3")] <- "C"
+shp_df$id[shp_df$id == c("6")] <- "C"
+shp_df$id[shp_df$id == c("8")] <- "C"
+shp_df$id[shp_df$id == c("9")] <- "C"
+shp_df$id[shp_df$id == c("10")] <- "C"
+shp_df$id[shp_df$id == c("11")] <- "C"
+
+shp_df$id[shp_df$id == c("4")] <- "L"
+shp_df$id[shp_df$id == c("5")] <- "L"
+shp_df$id[shp_df$id == c("7")] <- "L"
+
+z <- c("gray85", "gray45")
+
+#current
+mapnew <- ggplot(data = world) + geom_polygon(data = shp_df, 
+          aes(x = long, y = lat, group = group, fill = id),
+          color = 'black', size = .2) + scale_alpha(guide = 'none') + scale_fill_manual(values=z) + guides(fill = FALSE) +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank(), panel.grid.major = element_line(colour = "transparent"), panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  coord_sf(xlim = c(96,119), ylim = c(-6.5,7.5), expand = FALSE) + xlab("Longitude") + ylab("Latitude") + 
+  scale_shape_manual(values = c(21,24), 
+                     guide = guide_legend(label.theme = element_text(angle = 0, 
+                                                                     face = "italic", size=12))) + 
+  theme(legend.title = element_blank(), 
+        legend.box.background = element_rect(color="black", size=0.4)) + 
+  theme(legend.position = c(0.89,0.08),
+        legend.spacing.x = unit(1, 'mm'), legend.key.size = unit(5, 'mm'), legend.background = element_rect(color = "white", linetype = "solid", size=1)) +
+  annotation_scale(location = "bl", width_hint = 0.18) +
+    annotation_north_arrow(location = "bl", which_north = "true", 
+        pad_x = unit(0.5, "in"), pad_y = unit(0.3, "in"), 
+        height = unit(1, "cm"),
+        width = unit(1, "cm"),
+        style = north_arrow_fancy_orienteering) + borders(
+  database = "world",
+  regions = ".",
+  fill = NA,
+  colour = "grey20",
+  xlim = c(96,119),
+  ylim = c(-6.5,7.5)) + theme(axis.text.x = element_text(face="bold", color="black"), axis.text.y = element_text(face="bold", color="black")) + geom_point(data = sites, aes(x = Long, y = Lat, shape = Subspecies), fill = "black", colour="white", size = 3.5) + geom_point(aes(x=98.80778, y=3.52997), colour="white", size = 1.5, shape = 3)
+
+mapnew
+
+#geom_sf(fill = "white")
+
+#ggsave(mapnew,file="ptilo_updatedmap3.jpg",width=200, height=120, units="mm")
+```
+
+
