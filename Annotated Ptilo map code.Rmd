@@ -1,0 +1,122 @@
+---
+title: "Sample map code"
+author: "Maya Juman"
+date: "February 23, 2022"
+output: html_document
+---
+
+```{r}
+#load necessary packages
+library("ggplot2")
+library("rnaturalearth")
+library("rnaturalearthdata")
+library("ggspatial")
+library("rgdal")
+library("sf")
+```
+
+```{r}
+setwd("~/Desktop/ptilo") #set working directory
+sites <- read.csv("ptilo_loc.csv") #load lat/long data for mapping
+
+#set general map theme (simple, b&w) and load country borders
+theme_set(theme_bw())
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+#set custom color scale for ranges
+z <- c("gray85", "gray45")
+
+#load ESRI shp data (IUCN range)
+spdf <- readOGR(dsn = "~/Desktop/ptilo", layer = "data_0")
+shp_df <- fortify(spdf)
+
+#sort separate ranges if necessary (in this case, labeling as subspecies)
+shp_df$id[shp_df$id == c("0")] <- "C"
+shp_df$id[shp_df$id == c("1")] <- "C"
+shp_df$id[shp_df$id == c("2")] <- "C"
+shp_df$id[shp_df$id == c("3")] <- "C"
+shp_df$id[shp_df$id == c("6")] <- "C"
+shp_df$id[shp_df$id == c("8")] <- "C"
+shp_df$id[shp_df$id == c("9")] <- "C"
+shp_df$id[shp_df$id == c("10")] <- "C"
+shp_df$id[shp_df$id == c("11")] <- "C"
+shp_df$id[shp_df$id == c("4")] <- "L"
+shp_df$id[shp_df$id == c("5")] <- "L"
+shp_df$id[shp_df$id == c("7")] <- "L"
+
+#NOTE: the following doesn't work and will throw an error
+#shp_df$id[shp_df$id == c("0", "1", "2", "3", "6", "8", "9", "10", "11")] <- "C"
+#shp_df$id[shp_df$id == c("4", "5", "7")] <- "L"
+
+#let's build map in layers
+
+#start with blank world map
+map <- ggplot(data = world) + 
+  borders(database = "world", regions = ".", fill = NA, colour = "grey20") 
+
+#set x and y limits
+map <- map + coord_sf(xlim = c(96,119), ylim = c(-6.5,7.5), expand = FALSE)
+
+#add shp files for range, remove default legend, and use custom color scale
+map <- map + geom_polygon(data = shp_df, 
+                          aes(x = long, 
+                          y = lat, 
+                          group = group, 
+                          fill = id),
+                          color = 'black', 
+                          size = .2) + 
+  scale_fill_manual(values=z) +
+  guides(fill = FALSE)
+
+#get rid of default axis labels and gridlines, set border/ticks formatting
+map <- map + theme(axis.title.x=element_blank(), axis.title.y=element_blank(), 
+        panel.grid.major = element_line(colour = "transparent"), 
+        panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  theme(axis.text.x = element_text(face="bold", color="black"), 
+        axis.text.y = element_text(face="bold", color="black"))
+
+#add points
+map <- map + geom_point(data = sites, 
+                        aes(x = Long, 
+                            y = Lat, 
+                            shape = Subspecies), 
+                        fill = "black", 
+                        colour = "white", 
+                        size = 3.5) + 
+  geom_point(aes(x=98.80778, y=3.52997), colour="white", size = 1.5, shape = 3)
+
+#set custom shapes and format legend text
+map <- map + scale_shape_manual(values = c(21,24), 
+                     guide = guide_legend(label.theme = element_text(angle = 0, 
+                                                                     face = "italic", size=12)))
+
+#more legend formatting
+map <- map + theme(legend.title = element_blank(), 
+        legend.box.background = element_rect(color="black", size=0.4), 
+        legend.position = c(0.85,0.08),
+        legend.spacing.x = unit(1, 'mm'), 
+        legend.key.size = unit(5, 'mm'), 
+        legend.background = element_rect(color = "white", 
+                                         linetype = "solid", size=1)) 
+
+#last but not least, add scale and arrow
+map <- map + annotation_scale(location = "bl", 
+                              width_hint = 0.18) + 
+  annotation_north_arrow(location = "bl", 
+                         which_north = "true", 
+                         pad_x = unit(0.5, "in"), 
+                         pad_y = unit(0.3, "in"),
+                         height = unit(1, "cm"),
+                         width = unit(1, "cm"),
+                         style = north_arrow_fancy_orienteering)
+
+#display map
+map
+
+#save map
+ggsave(map,file="ptilo_map.jpg",width=200, height=120, units="mm")
+```
+
+
+
+
